@@ -3,6 +3,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var appState: AppState
     var onStyleChanged: ((SlangStyle) -> Void)?
+    var onRecordToggle: () -> Void
     var onQuit: () -> Void
     
     var body: some View {
@@ -18,6 +19,23 @@ struct MenuBarView: View {
                 Text(appState.recordingState.statusText).font(.system(size: 13)).lineLimit(2)
             }.padding(.horizontal, 12).padding(.top, 8)
             
+            Divider()
+
+            Button(action: onRecordToggle) {
+                HStack(spacing: 8) {
+                    Image(systemName: appState.recordingState == .recording ? "stop.circle.fill" : "mic.circle.fill")
+                        .font(.system(size: 14))
+                    Text(appState.recordingState == .recording ? "Stop Recording" : "Start Recording")
+                        .font(.system(size: 13, weight: .medium))
+                    Spacer()
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .padding(.horizontal, 12)
+            .disabled(!appState.isWhisperReady || appState.recordingState.isProcessing && appState.recordingState != .recording)
+            .opacity(!appState.isWhisperReady || appState.recordingState.isProcessing && appState.recordingState != .recording ? 0.4 : 1.0)
+
             Divider()
             
             VStack(alignment: .leading, spacing: 6) {

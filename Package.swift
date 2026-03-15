@@ -11,7 +11,11 @@ let package = Package(
         .executableTarget(
             name: "GenZFlow",
             dependencies: [.product(name: "WhisperKit", package: "WhisperKit")],
-            path: "GenZFlow"
+            path: "GenZFlow",
+            exclude: [
+                "Config.example.swift",
+                "Resources",
+            ],
         ),
     ]
 )

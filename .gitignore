@@ -16,6 +16,7 @@ DerivedData/
 .swiftpm/
 Packages/
 Package.resolved
+.vscode/
 .DS_Store
 *.swp
 *~

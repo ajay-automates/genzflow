@@ -1,67 +1,99 @@
 import Foundation
-import Cocoa
 import Carbon
 
-class HotkeyService {
-    private var eventTap: CFMachPort?
-    private var runLoopSource: CFRunLoopSource?
+final class HotkeyService {
+    private var hotKeyRef: EventHotKeyRef?
+    private var eventHandler: EventHandlerRef?
+    private let hotKeyID = EventHotKeyID(signature: OSType(0x475A464C), id: 1) // "GZFL"
+    private let spaceKeyCode: UInt32 = 49
+
     var onFnKeyDown: (() -> Void)?
     var onFnKeyUp: (() -> Void)?
-    private var isFnPressed = false
-    
+
     func start() -> Bool {
-        let eventMask: CGEventMask = (1 << CGEventType.flagsChanged.rawValue)
-        guard let tap = CGEvent.tapCreate(
-            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap,
-            eventsOfInterest: eventMask,
-            callback: { (proxy, type, event, refcon) -> Unmanaged<CGEvent>? in
-                guard let refcon = refcon else { return Unmanaged.passUnretained(event) }
-                let service = Unmanaged<HotkeyService>.fromOpaque(refcon).takeUnretainedValue()
-                return service.handleEvent(proxy: proxy, type: type, event: event)
+        stop()
+
+        var handler: EventHandlerRef?
+        var eventType = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
+
+        let status = InstallEventHandler(
+            GetApplicationEventTarget(),
+            { _, event, userData in
+                guard let event, let userData else { return noErr }
+
+                var hotKeyID = EventHotKeyID()
+                let result = GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hotKeyID
+                )
+
+                guard result == noErr else { return result }
+
+                let service = Unmanaged<HotkeyService>.fromOpaque(userData).takeUnretainedValue()
+                if hotKeyID.id == service.hotKeyID.id && hotKeyID.signature == service.hotKeyID.signature {
+                    DispatchQueue.main.async {
+                        service.onFnKeyDown?()
+                        service.onFnKeyUp?()
+                    }
+                }
+                return noErr
             },
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
-        ) else {
-            print("[HotkeyService] Failed to create event tap. Check Accessibility permissions.")
+            1,
+            &eventType,
+            Unmanaged.passUnretained(self).toOpaque(),
+            &handler
+        )
+
+        guard status == noErr, let handler else {
+            print("[HotkeyService] Failed to install hotkey handler: \(status)")
             return false
         }
-        eventTap = tap
-        runLoopSource = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, tap, 0)
-        if let source = runLoopSource {
-            CFRunLoopAddSource(CFRunLoopGetCurrent(), source, .commonModes)
-            CGEvent.tapEnable(tap: tap, enable: true)
-            print("[HotkeyService] Fn key listener active")
-            return true
+
+        self.eventHandler = handler
+
+        var hotKeyRef: EventHotKeyRef?
+        let modifiers = UInt32(controlKey | optionKey)
+        let registerStatus = RegisterEventHotKey(
+            spaceKeyCode,
+            modifiers,
+            hotKeyID,
+            GetApplicationEventTarget(),
+            0,
+            &hotKeyRef
+        )
+
+        guard registerStatus == noErr, let hotKeyRef else {
+            print("[HotkeyService] Failed to register Control + Option + Space: \(registerStatus)")
+            stop()
+            return false
         }
-        return false
+
+        self.hotKeyRef = hotKeyRef
+        print("[HotkeyService] Registered global hotkey: Control + Option + Space")
+        return true
     }
-    
+
     func stop() {
-        if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: false) }
-        if let source = runLoopSource { CFRunLoopRemoveSource(CFRunLoopGetCurrent(), source, .commonModes) }
-        eventTap = nil; runLoopSource = nil
-    }
-    
-    private func handleEvent(proxy: CGEventTapProxy, type: CGEventType, event: CGEvent) -> Unmanaged<CGEvent>? {
-        if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
-            if let tap = eventTap { CGEvent.tapEnable(tap: tap, enable: true) }
-            return Unmanaged.passUnretained(event)
+        if let hotKeyRef {
+            UnregisterEventHotKey(hotKeyRef)
+            self.hotKeyRef = nil
         }
-        guard type == .flagsChanged else { return Unmanaged.passUnretained(event) }
-        let isFnNow = event.flags.contains(.maskSecondaryFn)
-        if isFnNow && !isFnPressed {
-            isFnPressed = true
-            DispatchQueue.main.async { [weak self] in self?.onFnKeyDown?() }
-        } else if !isFnNow && isFnPressed {
-            isFnPressed = false
-            DispatchQueue.main.async { [weak self] in self?.onFnKeyUp?() }
+        if let eventHandler {
+            RemoveEventHandler(eventHandler)
+            self.eventHandler = nil
         }
-        return Unmanaged.passUnretained(event)
     }
-    
+
     static func hasAccessibilityPermissions() -> Bool {
-        let options = [kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary
-        return AXIsProcessTrustedWithOptions(options)
+        true
     }
-    
-    deinit { stop() }
+
+    deinit {
+        stop()
+    }
 }

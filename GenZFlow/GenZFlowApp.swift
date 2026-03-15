@@ -3,18 +3,18 @@ import AppKit
 
 @main
 struct GenZFlowApp: App {
-    @StateObject private var appState = AppState()
-    
-    private let hotkeyService = HotkeyService()
-    private let audioService = AudioService()
-    private let transcriptionService = TranscriptionService()
-    private let translationService = TranslationService()
-    private let pasteService = PasteService()
+    @StateObject private var controller = AppController()
+
+    init() {
+        NSApplication.shared.setActivationPolicy(.accessory)
+    }
     
     var body: some Scene {
         MenuBarExtra {
-            MenuBarView(appState: appState, onStyleChanged: { style in
-                translationService.currentStyle = style
+            MenuBarView(appState: controller.appState, onStyleChanged: { style in
+                controller.setStyle(style)
+            }, onRecordToggle: {
+                controller.toggleRecording()
             }) {
                 NSApplication.shared.terminate(nil)
             }
@@ -25,23 +25,67 @@ struct GenZFlowApp: App {
             }
         }
         .menuBarExtraStyle(.window)
-        .onChange(of: appState.recordingState) { _, _ in }
     }
     
     private var menuBarIcon: String {
-        switch appState.recordingState {
+        switch controller.appState.recordingState {
         case .recording: return "mic.fill"
         case .transcribing, .translating: return "brain.head.profile"
         case .error: return "exclamationmark.triangle"
         default: return "waveform"
         }
     }
-    
+
+}
+
+@MainActor
+final class AppController: ObservableObject {
+    let appState = AppState()
+
+    private let hotkeyService = HotkeyService()
+    private let audioService = AudioService()
+    private let transcriptionService = TranscriptionService()
+    private let translationService = TranslationService()
+    private let pasteService = PasteService()
+    private var lastExternalApp: NSRunningApplication?
+    private var activePasteTarget = PasteTarget(app: nil, focusedElement: nil)
+
     init() {
-        Task { @MainActor in await setupPipeline() }
+        lastExternalApp = currentTargetApp()
+        NSWorkspace.shared.notificationCenter.addObserver(
+            forName: NSWorkspace.didActivateApplicationNotification,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            guard let app = notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+            guard app.bundleIdentifier != Bundle.main.bundleIdentifier else { return }
+            Task { @MainActor in
+                self?.lastExternalApp = app
+            }
+        }
+
+        Task { @MainActor in
+            await setupPipeline()
+        }
     }
-    
-    @MainActor
+
+    func setStyle(_ style: SlangStyle) {
+        translationService.currentStyle = style
+    }
+
+    func toggleRecording() {
+        Task { @MainActor in
+            switch appState.recordingState {
+            case .idle:
+                await startRecording(appState: appState)
+            case .recording:
+                await stopRecordingAndProcess(appState: appState)
+            default:
+                break
+            }
+        }
+    }
+
     private func setupPipeline() async {
         if !HotkeyService.hasAccessibilityPermissions() {
             print("[GenZFlow] Requesting accessibility permissions...")
@@ -56,14 +100,10 @@ struct GenZFlowApp: App {
             return
         }
         
-        hotkeyService.onFnKeyDown = { [weak appState] in
-            guard let appState = appState else { return }
-            Task { @MainActor in await self.startRecording(appState: appState) }
+        hotkeyService.onFnKeyDown = { [weak self] in
+            self?.toggleRecording()
         }
-        hotkeyService.onFnKeyUp = { [weak appState] in
-            guard let appState = appState else { return }
-            Task { @MainActor in await self.stopRecordingAndProcess(appState: appState) }
-        }
+        hotkeyService.onFnKeyUp = {}
         audioService.onRecordingTimeout = { [weak appState] in
             guard let appState = appState else { return }
             Task { @MainActor in await self.stopRecordingAndProcess(appState: appState) }
@@ -71,13 +111,13 @@ struct GenZFlowApp: App {
         
         let started = hotkeyService.start()
         if !started { appState.recordingState = .error("Grant accessibility permissions and restart") }
-        print("[GenZFlow] Pipeline ready \u{2014} press Fn to talk!")
+        print("[GenZFlow] Pipeline ready — press Control + Option + Space to toggle recording")
     }
     
-    @MainActor
     private func startRecording(appState: AppState) async {
         guard appState.recordingState == .idle, appState.isWhisperReady else { return }
         do {
+            activePasteTarget = pasteService.captureTarget(for: currentTargetApp())
             _ = try audioService.startRecording()
             appState.recordingState = .recording
             NSSound.beep()
@@ -86,7 +126,6 @@ struct GenZFlowApp: App {
         }
     }
     
-    @MainActor
     private func stopRecordingAndProcess(appState: AppState) async {
         guard appState.recordingState == .recording else { return }
         guard let audioURL = audioService.stopRecording() else {
@@ -100,7 +139,7 @@ struct GenZFlowApp: App {
             appState.originalTranscript = transcript
             appState.recordingState = .translating
             let genZText = try await translationService.translate(transcript)
-            pasteService.paste(genZText)
+            pasteService.paste(genZText, into: activePasteTarget)
             appState.lastTranslation = genZText
             appState.translationCount += 1
             appState.recordingState = .done(genZText)
@@ -113,5 +152,13 @@ struct GenZFlowApp: App {
             try? await Task.sleep(nanoseconds: 3_000_000_000)
             appState.recordingState = .idle
         }
+    }
+
+    private func currentTargetApp() -> NSRunningApplication? {
+        let currentFrontmost = NSWorkspace.shared.frontmostApplication
+        if currentFrontmost?.bundleIdentifier != Bundle.main.bundleIdentifier {
+            return currentFrontmost
+        }
+        return lastExternalApp
     }
 }

@@ -11,7 +11,7 @@ enum RecordingState: Equatable {
     
     var statusText: String {
         switch self {
-        case .idle: return "Ready \u{2014} press Fn to talk"
+        case .idle: return "Ready \u{2014} press Control + Option + Space to talk"
         case .recording: return "Listening..."
         case .transcribing: return "Transcribing..."
         case .translating: return "Making it gen z..."

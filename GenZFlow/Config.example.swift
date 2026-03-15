@@ -1,9 +1,13 @@
+#if false
+// This example config is excluded from compilation to avoid duplicate types.
+// Copy this file to Config.swift and customize values instead of enabling this one.
+
 import Foundation
 
 enum Config {
     static let openAIAPIKey = "YOUR_OPENAI_API_KEY"
     static let openAIModel = "gpt-4o"
-    static let whisperModel = "large-v3"
+    static let whisperModel = "base"
     static let audioSampleRate: Double = 16000.0
     static let maxRecordingDuration: TimeInterval = 30.0
     static let defaultStyle: SlangStyle = .genZ
@@ -58,3 +62,4 @@ enum SlangStyle: String, CaseIterable, Identifiable {
         }
     }
 }
+#endif
