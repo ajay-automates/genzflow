@@ -35,7 +35,7 @@ class AppState: ObservableObject {
     @Published var lastTranslation: String = ""
     @Published var originalTranscript: String = ""
     @Published var translationCount: Int = 0
-    @Published var selectedStyle: SlangStyle = Config.defaultStyle
+    @Published var selectedStyle: SlangStyle = AppConfig.defaultStyle
     
     func reset() {
         recordingState = .idle

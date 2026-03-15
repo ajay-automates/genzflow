@@ -13,6 +13,7 @@ let package = Package(
             dependencies: [.product(name: "WhisperKit", package: "WhisperKit")],
             path: "GenZFlow",
             exclude: [
+                "Config.swift",
                 "Config.example.swift",
                 "Resources",
             ],

@@ -6,8 +6,8 @@ class TranscriptionService {
     private(set) var isReady = false
     
     func setup() async throws {
-        print("[TranscriptionService] Loading WhisperKit model: \(Config.whisperModel)...")
-        let whisper = try await WhisperKit(model: Config.whisperModel, verbose: false, logLevel: .error)
+        print("[TranscriptionService] Loading WhisperKit model: \(AppConfig.whisperModel)...")
+        let whisper = try await WhisperKit(model: AppConfig.whisperModel, verbose: false, logLevel: .error)
         self.whisperKit = whisper; self.isReady = true
         print("[TranscriptionService] WhisperKit ready")
     }

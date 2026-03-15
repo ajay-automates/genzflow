@@ -36,12 +36,10 @@ Fn key pressed → Mic capture (AVAudioEngine)
 ## Setup
 
 1. Clone this repo
-2. Open in Xcode 15+
-3. Copy `GenZFlow/Config.example.swift` → `GenZFlow/Config.swift`
-4. Add your OpenAI API key
-5. Build and run (Cmd+R)
-6. Grant microphone + accessibility permissions
-7. Press Fn to start talking!
+2. Set `OPENAI_API_KEY` in your shell, or create a local ignored `GenZFlow/Config.swift` from `GenZFlow/Config.example.swift`
+3. Open in Xcode 15+ or run `./scripts/run-macos-app.sh`
+4. Grant microphone + accessibility permissions
+5. Press `Control + Option + Space` to toggle recording
 
 ## License
 

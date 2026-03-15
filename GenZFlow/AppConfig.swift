@@ -1,12 +1,11 @@
-#if false
-// This example config is excluded from compilation to avoid duplicate types.
-// Keep this as a local, ignored file if you want the launcher script to read your API key.
-// The committed app code now reads OPENAI_API_KEY from the environment at runtime.
-
 import Foundation
 
-enum Config {
-    static let openAIAPIKey = "YOUR_OPENAI_API_KEY"
+enum AppConfig {
+    static let openAIAPIKey: String = {
+        ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+    }()
+
     static let openAIModel = "gpt-4o"
     static let whisperModel = "base"
     static let audioSampleRate: Double = 16000.0
@@ -20,9 +19,9 @@ enum SlangStyle: String, CaseIterable, Identifiable {
     case corporate = "Corporate Gen Z"
     case shakespeare = "Shakespeare"
     case pirate = "Pirate"
-    
+
     var id: String { rawValue }
-    
+
     var icon: String {
         switch self {
         case .genZ: return "flame.fill"
@@ -32,7 +31,7 @@ enum SlangStyle: String, CaseIterable, Identifiable {
         case .pirate: return "flag.fill"
         }
     }
-    
+
     var systemPrompt: String {
         switch self {
         case .genZ:
@@ -63,4 +62,3 @@ enum SlangStyle: String, CaseIterable, Identifiable {
         }
     }
 }
-#endif

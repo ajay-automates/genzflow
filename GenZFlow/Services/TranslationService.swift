@@ -4,9 +4,9 @@ class TranslationService {
     private let apiKey: String
     private let model: String
     private let session: URLSession
-    var currentStyle: SlangStyle = Config.defaultStyle
+    var currentStyle: SlangStyle = AppConfig.defaultStyle
     
-    init(apiKey: String = Config.openAIAPIKey, model: String = Config.openAIModel) {
+    init(apiKey: String = AppConfig.openAIAPIKey, model: String = AppConfig.openAIModel) {
         self.apiKey = apiKey; self.model = model
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = 15; config.timeoutIntervalForResource = 30
@@ -14,6 +14,7 @@ class TranslationService {
     }
     
     func translate(_ text: String) async throws -> String {
+        guard !apiKey.isEmpty else { throw TranslationError.missingAPIKey }
         let url = URL(string: "https://api.openai.com/v1/chat/completions")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -46,9 +47,10 @@ class TranslationService {
 }
 
 enum TranslationError: LocalizedError {
-    case invalidResponse, apiError(statusCode: Int, message: String), parseError
+    case missingAPIKey, invalidResponse, apiError(statusCode: Int, message: String), parseError
     var errorDescription: String? {
         switch self {
+        case .missingAPIKey: return "Missing OpenAI API key. Set OPENAI_API_KEY before launching GenZFlow."
         case .invalidResponse: return "Invalid API response"
         case .apiError(let code, let msg): return "API error (\(code)): \(msg.prefix(100))"
         case .parseError: return "Failed to parse API response"

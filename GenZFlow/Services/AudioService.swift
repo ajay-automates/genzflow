@@ -16,13 +16,13 @@ class AudioService {
         let inputFormat = inputNode.outputFormat(forBus: 0)
         let tempDir = FileManager.default.temporaryDirectory
         let fileURL = tempDir.appendingPathComponent("genzflow_\(UUID().uuidString).wav")
-        guard let recordingFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: Config.audioSampleRate, channels: 1, interleaved: false) else { throw AudioError.formatError }
+        guard let recordingFormat = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: AppConfig.audioSampleRate, channels: 1, interleaved: false) else { throw AudioError.formatError }
         guard let converter = AVAudioConverter(from: inputFormat, to: recordingFormat) else { throw AudioError.converterError }
         let audioFile = try AVAudioFile(forWriting: fileURL, settings: recordingFormat.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
         
         inputNode.installTap(onBus: 0, bufferSize: 4096, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self, self.isRecording else { return }
-            let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * Config.audioSampleRate / inputFormat.sampleRate)
+            let frameCount = AVAudioFrameCount(Double(buffer.frameLength) * AppConfig.audioSampleRate / inputFormat.sampleRate)
             guard let convertedBuffer = AVAudioPCMBuffer(pcmFormat: recordingFormat, frameCapacity: frameCount) else { return }
             var error: NSError?
             let status = converter.convert(to: convertedBuffer, error: &error) { inNumPackets, outStatus in
@@ -34,7 +34,7 @@ class AudioService {
         
         try engine.start()
         self.audioEngine = engine; self.audioFile = audioFile; self.tempFileURL = fileURL; self.isRecording = true
-        recordingTimer = Timer.scheduledTimer(withTimeInterval: Config.maxRecordingDuration, repeats: false) { [weak self] _ in self?.onRecordingTimeout?() }
+        recordingTimer = Timer.scheduledTimer(withTimeInterval: AppConfig.maxRecordingDuration, repeats: false) { [weak self] _ in self?.onRecordingTimeout?() }
         print("[AudioService] Recording started")
         return fileURL
     }

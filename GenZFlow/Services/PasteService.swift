@@ -50,7 +50,8 @@ class PasteService {
                 &focusedElementRef
             )
             if focusedResult == .success, let focusedElementRef {
-                return focusedElementRef as! AXUIElement
+                let focusedElement = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+                return focusedElement
             }
         }
 
@@ -62,7 +63,8 @@ class PasteService {
             &focusedElementRef
         )
         if focusedResult == .success, let focusedElementRef {
-            return focusedElementRef as! AXUIElement
+            let focusedElement = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
+            return focusedElement
         }
         return nil
     }
