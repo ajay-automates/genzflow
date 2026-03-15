@@ -2,8 +2,17 @@ import Foundation
 
 enum AppConfig {
     static let openAIAPIKey: String = {
-        ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
-            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let environmentKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines),
+           !environmentKey.isEmpty {
+            return environmentKey
+        }
+
+        if let appSupportKey = loadAPIKeyFromAppSupport() {
+            return appSupportKey
+        }
+
+        return loadAPIKeyFromLocalConfig() ?? ""
     }()
 
     static let openAIModel = "gpt-4o"
@@ -11,6 +20,60 @@ enum AppConfig {
     static let audioSampleRate: Double = 16000.0
     static let maxRecordingDuration: TimeInterval = 30.0
     static let defaultStyle: SlangStyle = .genZ
+
+    private static func loadAPIKeyFromAppSupport() -> String? {
+        guard let appSupportDirectory = FileManager.default.urls(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask
+        ).first else {
+            return nil
+        }
+
+        let configURL = appSupportDirectory
+            .appendingPathComponent("GenZFlow", isDirectory: true)
+            .appendingPathComponent("LocalConfig.plist")
+
+        guard let config = NSDictionary(contentsOf: configURL) as? [String: Any] else {
+            return nil
+        }
+
+        let candidates = [
+            config["OPENAI_API_KEY"] as? String,
+            config["openAIAPIKey"] as? String,
+        ]
+
+        return candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+    }
+
+    private static func loadAPIKeyFromLocalConfig() -> String? {
+        let currentDirectory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
+        let candidates = [
+            currentDirectory.appendingPathComponent("GenZFlow/Config.swift"),
+            currentDirectory.appendingPathComponent("Config.swift"),
+        ]
+
+        for fileURL in candidates {
+            guard let contents = try? String(contentsOf: fileURL) else { continue }
+            if let apiKey = parseAPIKey(from: contents) {
+                return apiKey
+            }
+        }
+
+        return nil
+    }
+
+    private static func parseAPIKey(from swiftSource: String) -> String? {
+        let pattern = #"openAIAPIKey\s*=\s*"([^"]+)""#
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return nil }
+        let range = NSRange(swiftSource.startIndex..., in: swiftSource)
+        guard let match = regex.firstMatch(in: swiftSource, range: range),
+              let keyRange = Range(match.range(at: 1), in: swiftSource) else {
+            return nil
+        }
+        return String(swiftSource[keyRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 enum SlangStyle: String, CaseIterable, Identifiable {

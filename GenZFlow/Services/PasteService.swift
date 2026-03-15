@@ -32,6 +32,11 @@ class PasteService {
                 return
             }
 
+            if self.performPasteMenuAction(in: target.app) {
+                print("[PasteService] Triggered Paste menu action")
+                return
+            }
+
             self.simulateCmdV(targetPID: target.app?.processIdentifier)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.12) {
                 self.pasteViaAppleScript(into: target.app)
@@ -51,7 +56,7 @@ class PasteService {
             )
             if focusedResult == .success, let focusedElementRef {
                 let focusedElement = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
-                return focusedElement
+                return resolveEditableElement(from: focusedElement)
             }
         }
 
@@ -64,8 +69,98 @@ class PasteService {
         )
         if focusedResult == .success, let focusedElementRef {
             let focusedElement = unsafeBitCast(focusedElementRef, to: AXUIElement.self)
-            return focusedElement
+            return resolveEditableElement(from: focusedElement)
         }
+        return nil
+    }
+
+    private func resolveEditableElement(from element: AXUIElement) -> AXUIElement {
+        if let highestEditableAncestor = copyElementAttribute(
+            kAXHighestEditableAncestorAttribute as CFString,
+            from: element
+        ) {
+            return highestEditableAncestor
+        }
+
+        if let editableAncestor = copyElementAttribute(
+            kAXEditableAncestorAttribute as CFString,
+            from: element
+        ) {
+            return editableAncestor
+        }
+
+        return element
+    }
+
+    private func copyElementAttribute(_ attribute: CFString, from element: AXUIElement) -> AXUIElement? {
+        var valueRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute, &valueRef)
+        guard result == .success, let valueRef else { return nil }
+        return unsafeBitCast(valueRef, to: AXUIElement.self)
+    }
+
+    private func copyChildren(of element: AXUIElement) -> [AXUIElement] {
+        var valueRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString, &valueRef)
+        guard result == .success, let values = valueRef as? [Any] else { return [] }
+        return values.map { unsafeBitCast($0 as AnyObject, to: AXUIElement.self) }
+    }
+
+    private func copyStringAttribute(_ attribute: CFString, from element: AXUIElement) -> String? {
+        var valueRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(element, attribute, &valueRef)
+        guard result == .success else { return nil }
+        return valueRef as? String
+    }
+
+    private func copyMenuItemModifiers(from element: AXUIElement) -> Int? {
+        var valueRef: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            element,
+            kAXMenuItemCmdModifiersAttribute as CFString,
+            &valueRef
+        )
+        guard result == .success, let number = valueRef as? NSNumber else { return nil }
+        return number.intValue
+    }
+
+    private func performPasteMenuAction(in targetApp: NSRunningApplication?) -> Bool {
+        guard let targetApp else { return false }
+
+        let applicationElement = AXUIElementCreateApplication(targetApp.processIdentifier)
+        var menuBarRef: CFTypeRef?
+        let menuBarResult = AXUIElementCopyAttributeValue(
+            applicationElement,
+            kAXMenuBarAttribute as CFString,
+            &menuBarRef
+        )
+
+        guard menuBarResult == .success, let menuBarRef else { return false }
+        let menuBar = unsafeBitCast(menuBarRef, to: AXUIElement.self)
+        guard let pasteMenuItem = findPasteMenuItem(in: menuBar) else { return false }
+        return AXUIElementPerformAction(pasteMenuItem, kAXPressAction as CFString) == .success
+    }
+
+    private func findPasteMenuItem(in root: AXUIElement) -> AXUIElement? {
+        var queue = [root]
+
+        while let element = queue.first {
+            queue.removeFirst()
+
+            let title = copyStringAttribute(kAXTitleAttribute as CFString, from: element)?.lowercased()
+            let commandChar = copyStringAttribute(kAXMenuItemCmdCharAttribute as CFString, from: element)?.lowercased()
+            let modifiers = copyMenuItemModifiers(from: element)
+
+            let isPasteTitle = title == "paste"
+            let isPasteShortcut = commandChar == "v" && (modifiers == nil || modifiers == 0)
+
+            if isPasteTitle || isPasteShortcut {
+                return element
+            }
+
+            queue.append(contentsOf: copyChildren(of: element))
+        }
+
         return nil
     }
     
@@ -111,16 +206,7 @@ class PasteService {
             return false
         }
 
-        var selectionRef: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXSelectedTextRangeAttribute as CFString, &selectionRef) == .success,
-              let selectionValue = selectionRef,
-              CFGetTypeID(selectionValue) == AXValueGetTypeID() else {
-            return false
-        }
-
-        var range = CFRange()
-        guard AXValueGetType(selectionValue as! AXValue) == .cfRange,
-              AXValueGetValue(selectionValue as! AXValue, .cfRange, &range) else {
+        guard let range = copySelectionRange(from: element) else {
             return false
         }
 
@@ -145,6 +231,43 @@ class PasteService {
             newSelection
         )
         return true
+    }
+
+    private func copySelectionRange(from element: AXUIElement) -> CFRange? {
+        var selectionRef: CFTypeRef?
+        let rangeResult = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangeAttribute as CFString,
+            &selectionRef
+        )
+        if rangeResult == .success,
+           let selectionRef,
+           let range = cfRange(from: selectionRef) {
+            return range
+        }
+
+        var rangesRef: CFTypeRef?
+        let rangesResult = AXUIElementCopyAttributeValue(
+            element,
+            kAXSelectedTextRangesAttribute as CFString,
+            &rangesRef
+        )
+        if rangesResult == .success,
+           let ranges = rangesRef as? [Any],
+           let firstRange = ranges.first {
+            return cfRange(from: firstRange as CFTypeRef)
+        }
+
+        return nil
+    }
+
+    private func cfRange(from value: CFTypeRef) -> CFRange? {
+        guard CFGetTypeID(value) == AXValueGetTypeID() else { return nil }
+        let axValue = unsafeBitCast(value, to: AXValue.self)
+        guard AXValueGetType(axValue) == .cfRange else { return nil }
+
+        var range = CFRange()
+        return AXValueGetValue(axValue, .cfRange, &range) ? range : nil
     }
 
     private func pasteViaAppleScript(into targetApp: NSRunningApplication?) {
